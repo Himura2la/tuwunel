@@ -11,7 +11,7 @@ use futures::{StreamExt, pin_mut};
 use ruma::{Mxc, UInt, UserId, http_headers::ContentDisposition, media::Method};
 use tokio::sync::Notify;
 use tuwunel_core::{
-	Err, Result, checked, err, implement,
+	Err, Result, checked, err, implement, info,
 	utils::{result::LogDebugErr, stream::IterStream},
 };
 
@@ -62,31 +62,44 @@ impl super::Service {
 		timeout_ms: Duration,
 		user: &UserId,
 	) -> Result<Media> {
+		info!("{mxc} {dim:?} {:?} a", dim.normalized());
 		if let Ok(media) = self
 			.get_thumbnail(mxc, dim, Some(timeout_ms))
 			.await
 		{
+			info!("{mxc} b");
 			return Ok(media);
 		}
+
+		info!("{mxc} c");
 
 		if self
 			.services
 			.globals
 			.server_is_ours(mxc.server_name)
 		{
+			info!("{mxc} d");
 			return Err!(Request(NotFound("Local thumbnail not found.")));
 		}
 
+		info!("{mxc} e");
+
 		let lock = self.federation_mutex.lock(&mxc.to_string()).await;
+
+		info!("{mxc} f");
 
 		if self
 			.db
 			.file_metadata_exists(mxc, &dim.normalized())
 			.await
 		{
+			info!("{mxc} g");
+
 			drop(lock);
 			return self.get_thumbnail(mxc, dim, None).await;
 		}
+
+		info!("{mxc} h");
 
 		self.fetch_remote_thumbnail(mxc, Some(user), None, timeout_ms, dim)
 			.await
