@@ -149,6 +149,19 @@ pub async fn first_item_in_room(&self, room_id: &RoomId) -> Result<(PduCount, Pd
 }
 
 #[implement(Service)]
+pub fn really_all_pdus(&self) -> impl Stream<Item = Result<&[u8]>> + Send {
+	self.db.pduid_pdu.raw_stream().map_ok(|x| x.1)
+}
+
+#[implement(Service)]
+pub fn really_all_outlier_pdus(&self) -> impl Stream<Item = Result<&[u8]>> + Send {
+	self.db
+		.eventid_outlierpdu
+		.raw_stream()
+		.map_ok(|x| x.1)
+}
+
+#[implement(Service)]
 #[tracing::instrument(skip(self), level = "debug")]
 pub async fn latest_item_in_room(
 	&self,

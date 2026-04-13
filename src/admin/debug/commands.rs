@@ -2,11 +2,12 @@ use std::{
 	collections::HashMap,
 	fmt::Write,
 	iter::once,
+	path::Path,
 	str::FromStr,
 	time::{Instant, SystemTime},
 };
 
-use futures::{FutureExt, StreamExt, TryStreamExt};
+use futures::{FutureExt, Stream, StreamExt, TryStreamExt, pin_mut};
 use ruma::{
 	CanonicalJsonObject, CanonicalJsonValue, EventId, OwnedEventId, OwnedRoomId,
 	OwnedRoomOrAliasId, OwnedServerName, RoomId, RoomVersionId,
@@ -15,6 +16,7 @@ use ruma::{
 	serde::Raw,
 };
 use serde::Serialize;
+use tokio::{io::AsyncWriteExt, try_join};
 use tracing_subscriber::EnvFilter;
 use tuwunel_core::{
 	Err, Result, debug_error, err, info, jwt,
@@ -1002,6 +1004,43 @@ pub(super) async fn get_retained_pdu(&self, event_id: OwnedEventId) -> Result {
 
 	self.write_str(&format!("Original PDU:\n```json\n{text}\n```"))
 		.await?;
+
+	Ok(())
+}
+
+#[admin_command]
+pub(super) async fn dump_pdus(&self, dir: String) -> Result {
+	let dir_path = Path::new(&dir);
+
+	tokio::fs::create_dir_all(dir_path).await?;
+
+	let normals = dir_path.join("normal");
+	let outliers = dir_path.join("outliers");
+	let retaineds = dir_path.join("retaineds");
+
+	try_join!(
+		dump_pdus(&normals, self.services.timeline.really_all_pdus()),
+		dump_pdus(&outliers, self.services.timeline.really_all_outlier_pdus()),
+		dump_pdus(&retaineds, self.services.retention.really_all_retained_pdus())
+	)?;
+
+	Ok(())
+}
+
+async fn dump_pdus(file: &Path, stream: impl Stream<Item = Result<&[u8]>> + Send) -> Result {
+	let mut open_options = tokio::fs::OpenOptions::new();
+	open_options.create(true);
+	open_options.truncate(true);
+	open_options.write(true);
+	let file = open_options.open(file).await?;
+	let mut writer = tokio::io::BufWriter::with_capacity(5 * 1024 * 1024 * 1024, file);
+
+	pin_mut!(stream);
+	while let Some(event) = stream.next().await {
+		let event = event?;
+
+		writer.write_all(event).await?;
+	}
 
 	Ok(())
 }
